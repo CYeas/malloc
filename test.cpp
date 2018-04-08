@@ -39,8 +39,8 @@ int main()
         exit(1);
     }
     dlerror();
-    my_malloc_ptr malloc_func = dlsym(handle, "my_malloc");
-    my_free_ptr free_func = dlsym(handle,"my_free");
+    my_malloc_ptr malloc_func = (my_malloc_ptr)dlsym(handle, "my_malloc");
+    my_free_ptr free_func = (my_free_ptr)dlsym(handle,"my_free");
 
     test(malloc_func,free_func);
 
