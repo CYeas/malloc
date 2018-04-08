@@ -1,17 +1,22 @@
 #include "library.h"
 
-extern "C" void* my_malloc(size_t size)
+void* my_malloc(size_t size)
 {
     if((signed)size < 0)
     {
         return NULL;
     }
+
+
+    return NULL;
 }
 
-extern "C" void my_free(void* ptr)
+void my_free(void* ptr)
 {
     if(ptr == NULL)
     {
         return;
     }
+
+
 }
