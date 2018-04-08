@@ -4,8 +4,8 @@
 
 #include <stddef.h>
 
-void* my_malloc(size_t);
+extern "C" void* my_malloc(size_t);
 
-void my_free(void*);
+extern "C" void my_free(void*);
 
 #endif

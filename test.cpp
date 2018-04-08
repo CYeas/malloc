@@ -32,7 +32,7 @@ int main()
     void *handle;
 
     char *error;
-    handle = dlopen ("libmymalloc.so", RTLD_LAZY);
+    handle = dlopen ("./mymalloc.so", RTLD_LAZY);
     if (!handle)
     {
         fprintf (stderr, "%s\n", dlerror());
