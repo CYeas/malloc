@@ -27,7 +27,7 @@ inline void* GET_USER_CHUNK(Chunk* p)
 
 inline Chunk* GET_CHUNK(void* p)
 {
-    return (Chunk*)(p-8);
+    return (Chunk*)(p-sizeof(size_t)*2);
 }
 
 inline void SET_PRE_INUSE(Chunk*p,int flag)
@@ -97,20 +97,34 @@ void add_to_free_list(Chunk* p)
     {
         main_arena.free_chunk_list = p;
         p->last = main_arena.free_chunk_list;
-        p->next = main_arena.free_chunk_list;
+        p->next = NULL;
     }
     else
     {
         auto chunk_p = main_arena.free_chunk_list;
-        while(chunk_p->next!=main_arena.free_chunk_list)
+        while(chunk_p->next!=NULL)
         {
             chunk_p = chunk_p->next;
         }
         chunk_p->next = p;
         p->last = chunk_p;
-        p->next = main_arena.free_chunk_list;
+        p->next = NULL;
     }
 
+}
+
+void unlink_from_free_list(Chunk* p)
+{   
+    Chunk* last = p->last;
+    Chunk* next = p->next;
+    if(next!=NULL)
+    {
+        next->last = last;
+    }
+    if(last!=NULL)
+    {
+        last->next = next;
+    }
 }
 
 Chunk* try_free_list(size_t size)
@@ -122,14 +136,22 @@ Chunk* try_free_list(size_t size)
             if(GET_CHUNK_SIZE(p) >= size)
             {
                 size_t new_size = GET_CHUNK_SIZE(p) - size;
-                if(new_size>0)
+                if(new_size > sizeof(Chunk))
                 {
+                    unlink_from_free_list(p);
                     Chunk* new_chunk = (Chunk*)((void*)&(*p) + size);
                     new_chunk->size = new_size;
                     new_chunk->pre_size = size;
                     SET_PRE_INUSE(new_chunk,1);
+                   
                     add_to_free_list(new_chunk);
+                    p->size = size;
                     return p;
+                }
+                else
+                {
+                    unlink_from_free_list(p);
+                    return p; 
                 }
             }
         }
@@ -191,10 +213,10 @@ void* my_malloc(size_t size)
         is_my_mallloc_init = 1;
     }
     size = GET_REAL_SIZE(size) + 2*sizeof(size_t);
-    if(size>getpagesize())
+    if(size>getpagesize()-sizeof(HeapMem)-sizeof(Chunk))
     {
-        Chunk* mmaped_chunk =  (Chunk*)mmap(NULL, size + sizeof(Chunk), PROT_READ|PROT_WRITE, MAP_SHARED,
-                  0, 0);
+        Chunk* mmaped_chunk =  (Chunk*)mmap(NULL, size + sizeof(Chunk), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
+              0, 0);
         mmaped_chunk->pre_size = 0;
         mmaped_chunk->size = size + sizeof(Chunk);
         SET_MMAPED_FALG(mmaped_chunk,1);

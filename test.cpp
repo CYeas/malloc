@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <err.h>
 
 typedef void*(*my_malloc_ptr)(size_t);
@@ -23,6 +24,17 @@ void test(my_malloc_ptr malloc_func,my_free_ptr free_func)
     strcpy(data,"test_str");
     printf("%s\n",data);
     free_func(data);
+
+    data = (char*)malloc_func(getpagesize()*3);
+    free_func(data);
+
+    srand((unsigned int)time(NULL));
+    for(int i=0;i<100;i++)
+    {
+        printf("%d\n",i);
+        data = (char*)malloc_func(rand()%getpagesize()-0x300);
+        free_func(data);
+    }
 
 }
 
