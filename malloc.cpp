@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+void alloc_new_heap();
+
 static bool is_my_mallloc_init = 0;
 
 static Arena main_arena;
@@ -121,7 +123,11 @@ void unlink_from_free_list(Chunk* p)
     {
         next->last = last;
     }
-    if(last!=NULL)
+    if(p==main_arena.free_chunk_list)
+    {
+        main_arena.free_chunk_list = next;
+    }
+    else
     {
         last->next = next;
     }
@@ -168,14 +174,29 @@ Chunk* try_split_top_chunk(size_t size)
     Chunk* res = main_arena.top_chunk;
 
     main_arena.top_chunk = (Chunk*)((void*)&(*main_arena.top_chunk) + size);
+    size_t new_size = res->size - size;
+    if(new_size<sizeof(Chunk))
+    {
+        alloc_new_heap();
+        return res;
+    }
     main_arena.top_chunk->size = res->size - size;
     res->size = size;
     
     return res;
 }
 
+#ifdef IS_DEBUG
+#include <stdio.h>
+#endif
+
 void alloc_new_heap()
 {
+    #ifdef IS_DEBUG
+    static int page_count = 0;
+    printf("page : %d\n",++page_count);
+
+    #endif
     add_to_free_list(main_arena.top_chunk);
     HeapMem* first_heap = (HeapMem*)mmap(NULL, getpagesize(), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
               0, 0);
@@ -213,10 +234,14 @@ void* my_malloc(size_t size)
         is_my_mallloc_init = 1;
     }
     size = GET_REAL_SIZE(size) + 2*sizeof(size_t);
-    if(size>getpagesize()-sizeof(HeapMem)-sizeof(Chunk))
+    if(size > getpagesize()-sizeof(HeapMem)-sizeof(Chunk))
     {
         Chunk* mmaped_chunk =  (Chunk*)mmap(NULL, size + sizeof(Chunk), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
               0, 0);
+        if(mmaped_chunk == (Chunk*)-1)
+        {
+            ERROR_MSG(strerror(errno));
+        }
         mmaped_chunk->pre_size = 0;
         mmaped_chunk->size = size + sizeof(Chunk);
         SET_MMAPED_FALG(mmaped_chunk,1);

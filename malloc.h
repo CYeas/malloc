@@ -39,4 +39,5 @@ struct Arena
 
 #endif
 
+#define IS_DEBUG 1
 

@@ -28,11 +28,15 @@ void test(my_malloc_ptr malloc_func,my_free_ptr free_func)
     data = (char*)malloc_func(getpagesize()*3);
     free_func(data);
 
-    srand((unsigned int)time(NULL));
+    unsigned int seed = (unsigned int)time(NULL);
+    //unsigned int seed = 1523191652;
+    printf("seed : %d\n",seed);
+    
+    srand(seed);
     for(int i=0;i<100;i++)
     {
         printf("%d\n",i);
-        data = (char*)malloc_func(rand()%getpagesize()-0x300);
+        data = (char*)malloc_func(rand()%getpagesize()*2);
         free_func(data);
     }
 
