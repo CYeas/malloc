@@ -74,17 +74,17 @@ inline void SET_MMAPED_FALG(Chunk* p,int flag)
 void my_malloc_init()
 {
     main_arena.free_chunk_list = NULL;
-    HeapMem* first_heap = (HeapMem*)mmap(NULL, getpagesize(), PROT_READ|PROT_WRITE, MAP_SHARED,
+    HeapMem* first_heap = (HeapMem*)mmap(NULL, getpagesize(), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
                   0, 0);
-    if(first_heap <= 0)
+    if(first_heap == (HeapMem*)-1)
     {
-        ERROR_MSG("mmap failed");
+        ERROR_MSG(strerror(errno));
     }
     main_arena.memory_arena_head = first_heap;
     main_arena.memory_arena_tail = first_heap;
     first_heap->last = (HeapMem*)&main_arena;
     first_heap->next = NULL;
-    Chunk* first_top_chunk = (Chunk*)(&first_heap + sizeof(HeapMem));
+    Chunk* first_top_chunk = (Chunk*)((void*)&(*first_heap) + sizeof(HeapMem));
     first_top_chunk->pre_size = 0;
     first_top_chunk->size = getpagesize() - sizeof(HeapMem);
     main_arena.top_chunk = first_top_chunk;
@@ -137,10 +137,51 @@ Chunk* try_free_list(size_t size)
     return NULL;
 }
 
+Chunk* try_split_top_chunk(size_t size)
+{
+    if(size > main_arena.top_chunk->size)
+    {
+        return NULL;
+    }
+    Chunk* res = main_arena.top_chunk;
+
+    main_arena.top_chunk = (Chunk*)((void*)&(*main_arena.top_chunk) + size);
+    main_arena.top_chunk->size = res->size - size;
+    res->size = size;
+    
+    return res;
+}
+
+void alloc_new_heap()
+{
+    add_to_free_list(main_arena.top_chunk);
+    HeapMem* first_heap = (HeapMem*)mmap(NULL, getpagesize(), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
+              0, 0);
+    if(first_heap == (HeapMem*)-1)
+    {
+        ERROR_MSG(strerror(errno));
+    }
+    // main_arena.memory_arena_head = first_heap;
+    auto p = main_arena.memory_arena_head;
+    while(p->next!=NULL)
+    {
+        p = p->next;
+    }
+    p->next=first_heap;
+    first_heap->last = p;
+    first_heap->next = NULL;
+    main_arena.memory_arena_tail = first_heap;
+    
+    Chunk* first_top_chunk = (Chunk*)((void*)&(*first_heap) + sizeof(HeapMem));
+    first_top_chunk->pre_size = 0;
+    first_top_chunk->size = getpagesize() - sizeof(HeapMem);
+    main_arena.top_chunk = first_top_chunk;
+}
+
 void* my_malloc(size_t size)
 {
 
-    if((signed)size < 0)
+    if(size >> 63)
     {
         return NULL;
     }
@@ -158,7 +199,6 @@ void* my_malloc(size_t size)
         mmaped_chunk->size = size + sizeof(Chunk);
         SET_MMAPED_FALG(mmaped_chunk,1);
         return GET_USER_CHUNK(mmaped_chunk);
-
     }
     Chunk* res = NULL;
     if(res = try_free_list(size))
@@ -166,8 +206,16 @@ void* my_malloc(size_t size)
         return GET_USER_CHUNK(res);
     }
 
+    if(res = try_split_top_chunk(size))
+    {
+        return GET_USER_CHUNK(res);
+    }
 
-
+    alloc_new_heap();
+    if(res = try_split_top_chunk(size))
+    {
+        return GET_USER_CHUNK(res);
+    }
 
     return NULL;
 }
