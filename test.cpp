@@ -9,13 +9,30 @@
 #include <stdlib.h>
 #include <time.h>
 #include <err.h>
+#include <pthread.h>
 
 typedef void*(*my_malloc_ptr)(size_t);
 typedef void (*my_free_ptr)(void*);
 
+my_malloc_ptr malloc_func;
+my_free_ptr free_func;
+
 char* test_data[2048];
 
-void test(my_malloc_ptr malloc_func,my_free_ptr free_func)
+pthread_t pids[512];
+
+void* thread_test(void* ptr)
+{
+    int num = (int)ptr;
+    for(int i=0;i<num;i++)
+    {
+        void* data = malloc_func(rand()%getpagesize());
+        free_func(data);
+    }
+
+}
+
+void test()
 {
     char* data;// = (char*)malloc_func(100);
     memset(test_data,'a',2048);
@@ -45,6 +62,15 @@ void test(my_malloc_ptr malloc_func,my_free_ptr free_func)
         free_func(data);
     }
 
+    for(int i=0;i<512;i++)
+    {
+        pthread_create(&pids[i], NULL, thread_test, (void*)(rand()%100));
+    }
+    for(int i=0;i<512;i++)
+    {
+        pthread_join(pids[i], NULL);
+    }
+
 }
 
 
@@ -60,10 +86,10 @@ int main()
         exit(1);
     }
     dlerror();
-    my_malloc_ptr malloc_func = (my_malloc_ptr)dlsym(handle, "my_malloc");
-    my_free_ptr free_func = (my_free_ptr)dlsym(handle,"my_free");
+    malloc_func = (my_malloc_ptr)dlsym(handle, "my_malloc");
+    free_func = (my_free_ptr)dlsym(handle,"my_free");
 
-    test(malloc_func,free_func);
+    test();
 
     if ((error = dlerror()) != NULL)
     {
