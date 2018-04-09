@@ -43,6 +43,11 @@ inline Chunk* GET_CHUNK(void* p)
     return (Chunk*)(p-sizeof(size_t)*2);
 }
 
+inline size_t PAGE_SIZE(size_t size)
+{
+    return size % getpagesize() == 0? size: (size/getpagesize() + getpagesize());
+}
+
 inline void SET_PRE_INUSE(Chunk*p,int flag)
 {
     if(flag == 0)
@@ -96,7 +101,7 @@ inline void SET_MMAPED_FALG(Chunk* p,int flag)
         {
             return;
         }
-        p += 2;
+        p->size += 2;
     }
 }
 
@@ -242,6 +247,10 @@ void add_to_free_list(Chunk* p)
     if(p == main_arena.top_chunk)
     {
         return;
+    }
+    if(((size_t)p) % getpagesize() == 0)
+    {
+        ERROR_MSG("free chunk invaild\n");
     }
     // if(main_arena.free_chunk_list->last == NULL)
     // {
@@ -425,32 +434,49 @@ void* my_malloc(size_t size)
     size = GET_REAL_SIZE(size) + 3*sizeof(size_t);
     if(size > getpagesize()-sizeof(HeapMem)-sizeof(Chunk))
     {
-        Chunk* mmaped_chunk =  (Chunk*)mmap(NULL, size + sizeof(Chunk), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
+        size_t real_size = PAGE_SIZE(size + sizeof(size_t)*2);
+        Chunk* mmaped_chunk =  (Chunk*)mmap(NULL, real_size, PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
               0, 0);
         if(mmaped_chunk == (Chunk*)-1)
         {
             ERROR_MSG(strerror(errno));
         }
         mmaped_chunk->pre_size = 0;
-        mmaped_chunk->size = size + sizeof(Chunk);
+        mmaped_chunk->size = real_size;
         SET_MMAPED_FALG(mmaped_chunk,1);
         SET_CHUNK_INUSE(mmaped_chunk,1);
+        #ifdef IS_DEBUG
+        printf("malloc by mmap\n");
+        
+        #endif
         return GET_USER_CHUNK(mmaped_chunk);
     }
     Chunk* res = NULL;
     if(res = try_free_list(size))
     {
+        #ifdef IS_DEBUG
+        printf("malloc by free list\n");
+        
+        #endif
         return GET_USER_CHUNK(res);
     }
 
     if(res = try_split_top_chunk(size))
     {
+        #ifdef IS_DEBUG
+        printf("malloc by split chunk\n");
+        
+        #endif
         return GET_USER_CHUNK(res);
     }
 
     alloc_new_heap();
     if(res = try_split_top_chunk(size))
     {
+        #ifdef IS_DEBUG
+        printf("malloc by alloc and slpit chunk\n");
+        
+        #endif
         return GET_USER_CHUNK(res);
     }
 
@@ -466,7 +492,7 @@ void my_free(void* ptr)
     Chunk* p = GET_CHUNK(ptr);
     if(IS_CHUNK_MMAPED(p))
     {
-        munmap(p,p->size);
+        munmap(p,GET_CHUNK_SIZE(p));
         return;
     }
     if(!IS_CHUNK_INUSE(p))

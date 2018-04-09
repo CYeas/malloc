@@ -31,7 +31,7 @@ void test(my_malloc_ptr malloc_func,my_free_ptr free_func)
     //free_func(data);
 
     unsigned int seed = (unsigned int)time(NULL);
-    //unsigned int seed = 1523275074;
+    //unsigned int seed = 1523276087;
     printf("seed : %d\n",seed);
     
     srand(seed);
