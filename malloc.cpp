@@ -17,6 +17,8 @@ static bool is_my_mallloc_init = 0;
 
 static Arena main_arena;
 
+static Chunk main_arena_fake_chunk;
+
 inline void ERROR_MSG(const char* msg)
 {
     write(2,msg,strlen(msg));
@@ -111,6 +113,11 @@ inline Chunk* GET_NEXT_CHUNK(Chunk*p)
 inline void SET_NEXT_CHUNK_PREUSE(Chunk* p,int flag)
 {
     Chunk* next = GET_NEXT_CHUNK(p);
+    if(((size_t)next) % getpagesize() == 0)
+    {
+        return;
+    }
+    
     next->pre_size = p->size;
     SET_PRE_INUSE(next,1);
 }
@@ -131,7 +138,13 @@ inline bool IS_CHUNK_INUSE(Chunk* p)
 
 void my_malloc_init()
 {
-    main_arena.free_chunk_list = NULL;
+    main_arena.free_chunk_list = &main_arena_fake_chunk;
+
+    main_arena_fake_chunk.last = NULL;
+    main_arena_fake_chunk.next = NULL;
+    main_arena_fake_chunk.size = 0;
+    main_arena_fake_chunk.pre_size = 0;
+
     //main_arena.last_chunk_list = NULL;
     HeapMem* first_heap = (HeapMem*)mmap(NULL, getpagesize(), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
                   0, 0);
@@ -171,7 +184,8 @@ bool try_combine_chunk(Chunk* p)
         unlink_from_free_list(last);
         last->size = last->size + p->size;
         SET_CHUNK_INUSE(last,0);
-        add_to_free_list(last);
+        SET_NEXT_CHUNK_PREUSE(last,0);
+        //add_to_free_list(last);
         //return true;
         p = last;
         flag = 1;
@@ -179,29 +193,35 @@ bool try_combine_chunk(Chunk* p)
    
     while(!IS_NEXT_INUSE(p))
     {
-        if((size_t)&(*p)+p->size % getpagesize() == 0)
+       
+        Chunk* next = GET_NEXT_CHUNK(p);
+        if((size_t)(next) % getpagesize() == 0)
         {
             return false;
         }
-        Chunk* next = GET_NEXT_CHUNK(p);
         if(next == main_arena.top_chunk)
         {
             p->size = p->size + next->size;   
             main_arena.top_chunk = p;
             //add_to_free_list(p);
-            return false;
+            return true;
+        }
+        if(next->size == 0)
+        {
+            break;
         }
         unlink_from_free_list(next);
         p->size = p->size + next->size;
         #ifdef IS_DEBUG
         //printf("combine add 0x%x to free list\n",p);
         #endif
-        add_to_free_list(p);
+        
         //return true;
         flag = 1;
     }
     if(flag == 1)
     {
+        add_to_free_list(p);
         return true;
     }
 
@@ -223,27 +243,37 @@ void add_to_free_list(Chunk* p)
     {
         return;
     }
-    if(main_arena.free_chunk_list == NULL)
+    // if(main_arena.free_chunk_list->last == NULL)
+    // {
+    //     main_arena.free_chunk_list->next = p;
+    //     main_arena.free_chunk_list->last = p;
+    //     p->last = main_arena.free_chunk_list->next;
+    //     p->next = NULL;
+    // }
+    // else
+    
+    auto chunk_p = main_arena.free_chunk_list;
+    while(chunk_p->next!=NULL)
     {
-        main_arena.free_chunk_list = p;
-        p->last = main_arena.free_chunk_list;
-        p->next = NULL;
-    }
-    else
-    {
-        auto chunk_p = main_arena.free_chunk_list;
-        while(chunk_p->next!=NULL)
-        {
             
-            chunk_p = chunk_p->next;
-        }
-        chunk_p->next = p;
-        p->last = chunk_p;
-        p->next = NULL;
+        chunk_p = chunk_p->next;
     }
-    SET_NEXT_CHUNK_PREUSE(p,0);
-    SET_CHUNK_INUSE(p,0);
+    chunk_p->next = p;
+    p->last = chunk_p;
+    
+    
 
+    #ifdef IS_DEBUG
+    if(p->last == p)
+    {
+        ERROR_MSG("add error\n");
+    }
+    #endif
+    
+    SET_NEXT_CHUNK_PREUSE(p,0);
+    
+    SET_CHUNK_INUSE(p,0);
+    p->next = NULL;
 }
 
 void unlink_from_free_list(Chunk* p)
@@ -252,18 +282,23 @@ void unlink_from_free_list(Chunk* p)
     {
         return;
     }
+    if(p == &main_arena_fake_chunk)
+    {
+        ERROR_MSG("memory down!\n");
+    }
     Chunk* last = p->last;
     Chunk* next = p->next;
-    if(p==main_arena.free_chunk_list)
-    {
-        main_arena.free_chunk_list = next;
-        //main_arena.free_chunk_list = next;
-        if(next!=NULL)
-        {
-            next->last = main_arena.free_chunk_list;
-        }
-        return;
-    }
+    // if(p==main_arena.free_chunk_list)
+    // {
+    //     main_arena.free_chunk_list = next;
+    //     //main_arena.free_chunk_list = next;
+    //     if(next!=NULL)
+    //     {
+    //         next->last = main_arena.free_chunk_list;
+    //     }
+    //     return;
+    // }
+    
     if(next!=NULL)
     {
         next->last = last;
@@ -387,7 +422,7 @@ void* my_malloc(size_t size)
         my_malloc_init();
         is_my_mallloc_init = 1;
     }
-    size = GET_REAL_SIZE(size) + 2*sizeof(size_t);
+    size = GET_REAL_SIZE(size) + 3*sizeof(size_t);
     if(size > getpagesize()-sizeof(HeapMem)-sizeof(Chunk))
     {
         Chunk* mmaped_chunk =  (Chunk*)mmap(NULL, size + sizeof(Chunk), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
