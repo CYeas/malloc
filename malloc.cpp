@@ -219,6 +219,7 @@ void add_to_free_list(Chunk* p)
         p->next = NULL;
     }
     SET_NEXT_CHUNK_PREUSE(p,0);
+    SET_CHUNK_INUSE(p,0);
 
 }
 

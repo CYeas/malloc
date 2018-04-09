@@ -38,7 +38,7 @@ void test(my_malloc_ptr malloc_func,my_free_ptr free_func)
     for(int i=0;i<100;i++)
     {
         
-        size_t size = rand()%getpagesize()*2;
+        size_t size = rand()%getpagesize();
         printf("%d : size : %d\n",i,size);
         data = (char*)malloc_func(size);
         memcpy(data,test_data,size>2047?2017:size);
