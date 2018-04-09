@@ -33,6 +33,7 @@ struct Arena
     HeapMem* memory_arena_head;
     HeapMem* memory_arena_tail;
     Chunk* top_chunk;
+    //Chunk* last_chunk_list;
     Chunk* free_chunk_list;
 
 };

@@ -6,6 +6,7 @@
 #include <stdio.h>
 #endif
 
+
 void alloc_new_heap();
 
 void unlink_from_free_list(Chunk* p);
@@ -131,6 +132,7 @@ inline bool IS_CHUNK_INUSE(Chunk* p)
 void my_malloc_init()
 {
     main_arena.free_chunk_list = NULL;
+    //main_arena.last_chunk_list = NULL;
     HeapMem* first_heap = (HeapMem*)mmap(NULL, getpagesize(), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE,
                   0, 0);
     if(first_heap == (HeapMem*)-1)
@@ -150,6 +152,7 @@ void my_malloc_init()
 
 bool try_combine_chunk(Chunk* p)
 {
+    int flag = 0;
     if(p->pre_size==0)
     {
         return false;
@@ -158,17 +161,28 @@ bool try_combine_chunk(Chunk* p)
     {
         return false;
     }
-    if(!IS_PRE_INUSE(p))
+    while(!IS_PRE_INUSE(p))
     {
+        if(p->pre_size==0)
+        {
+            break;
+        }
         Chunk* last = GET_LAST_CHUNK(p);
-        //unlink_from_free_list(last);
+        unlink_from_free_list(last);
         last->size = last->size + p->size;
         SET_CHUNK_INUSE(last,0);
-        //add_to_free_list(last);
-        return true;
+        add_to_free_list(last);
+        //return true;
+        p = last;
+        flag = 1;
     }
-    if(!IS_NEXT_INUSE(p))
+   
+    while(!IS_NEXT_INUSE(p))
     {
+        if((size_t)&(*p)+p->size % getpagesize() == 0)
+        {
+            return false;
+        }
         Chunk* next = GET_NEXT_CHUNK(p);
         if(next == main_arena.top_chunk)
         {
@@ -180,9 +194,14 @@ bool try_combine_chunk(Chunk* p)
         unlink_from_free_list(next);
         p->size = p->size + next->size;
         #ifdef IS_DEBUG
-        printf("combine add 0x%x to free list\n",p);
+        //printf("combine add 0x%x to free list\n",p);
         #endif
         add_to_free_list(p);
+        //return true;
+        flag = 1;
+    }
+    if(flag == 1)
+    {
         return true;
     }
 
@@ -192,7 +211,11 @@ bool try_combine_chunk(Chunk* p)
 
 void add_to_free_list(Chunk* p)
 {
-    if(!IS_CHUNK_INUSE(p))
+    // if(!IS_CHUNK_INUSE(p))
+    // {
+    //     return;
+    // }
+    if(p == NULL)
     {
         return;
     }
@@ -225,6 +248,10 @@ void add_to_free_list(Chunk* p)
 
 void unlink_from_free_list(Chunk* p)
 {   
+    if(p == NULL)
+    {
+        return;
+    }
     Chunk* last = p->last;
     Chunk* next = p->next;
     if(p==main_arena.free_chunk_list)
@@ -261,10 +288,10 @@ Chunk* try_free_list(size_t size)
                 {
                     unlink_from_free_list(p);
                     Chunk* new_chunk = (Chunk*)((void*)&(*p) + size);
-                    new_chunk->size = new_size;
+                    new_chunk->size = p->size - size;
                     new_chunk->pre_size = size;
                     
-                    SET_PRE_INUSE(new_chunk,1);
+                    //SET_PRE_INUSE(new_chunk,1);
 
                     add_to_free_list(new_chunk);
                     p->size = size;
@@ -288,6 +315,10 @@ Chunk* try_free_list(size_t size)
 
 Chunk* try_split_top_chunk(size_t size)
 {
+    if(main_arena.top_chunk == NULL)
+    {
+        return NULL;
+    }
     if(size > main_arena.top_chunk->size)
     {
         return NULL;
@@ -298,7 +329,10 @@ Chunk* try_split_top_chunk(size_t size)
     size_t new_size = res->size - size;
     if(new_size<sizeof(Chunk))
     {
-        alloc_new_heap();
+        //alloc_new_heap();
+        main_arena.top_chunk = NULL;
+        SET_CHUNK_INUSE(res,1);
+        
         return res;
     }
     main_arena.top_chunk->size = res->size - size;
@@ -338,6 +372,7 @@ void alloc_new_heap()
     first_top_chunk->pre_size = 0;
     first_top_chunk->size = getpagesize() - sizeof(HeapMem);
     main_arena.top_chunk = first_top_chunk;
+    
 }
 
 void* my_malloc(size_t size)
@@ -410,7 +445,7 @@ void my_free(void* ptr)
 
     add_to_free_list(p);
     #ifdef IS_DEBUG
-    printf("free add 0x%x to free list\n",p);
+    //printf("free add 0x%x to free list\n",p);
     int i=0;
     for(auto pointer=main_arena.free_chunk_list;pointer!=NULL;pointer=pointer->next,i++)
     {
