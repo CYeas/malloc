@@ -4,6 +4,7 @@
 
 #ifdef IS_DEBUG
 #include <stdio.h>
+#include <pthread.h>
 #endif
 
 void alloc_new_heap();
@@ -17,6 +18,8 @@ static int is_my_mallloc_init = 0;
 static Arena main_arena;
 
 static Chunk main_arena_fake_chunk;
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 inline void ERROR_MSG(const char *msg)
 {
@@ -37,6 +40,19 @@ inline void RELEASE_CAS_FLAG(Chunk *p)
     SET_CAS_FLAG(p);
     p->pre_size = p->pre_size ^ 2;
 }
+
+inline bool ARENA_CAS(bool old, bool new_value)
+{
+
+    int tmp = main_arena.cas_flag;
+    __asm__ __volatile__(
+        "lock cmpxchg %3,%1"
+        : "=a"(old), "=m"(*(volatile int *)(&tmp))
+        : "0"(tmp), "r"(new_value));
+    main_arena.cas_flag = tmp;
+    return tmp;
+}
+
 
 inline bool CAS(bool old, Chunk *p, bool new_value)
 {
@@ -202,6 +218,7 @@ void my_malloc_init()
 
 bool try_combine_chunk(Chunk *p)
 {
+
     int flag = 0;
     auto save_p = p;
     if (p->size == 0)
@@ -329,7 +346,6 @@ search_restart:
 #endif
 
     SET_NEXT_CHUNK_PREUSE(p, 0);
-
     SET_CHUNK_INUSE(p, 0);
     RELEASE_CAS_FLAG(chunk_p);
 }
@@ -379,6 +395,7 @@ restart:
 
 Chunk *try_free_list(size_t size)
 {
+
 re_try:
     if (main_arena.free_chunk_list != NULL)
     {
@@ -432,11 +449,12 @@ top_restart:
 
     Chunk *res = main_arena.top_chunk;
 
-    if (!CAS(false, res, true))
+    if (IS_CAS_FLAG(res))
     {
         goto top_restart;
     }
     size_t new_size = res->size - size;
+    
     if (new_size < sizeof(Chunk))
     {
         //alloc_new_heap();
@@ -445,8 +463,22 @@ top_restart:
         return res;
     }
     res->size = size;
+try_main_arena:
+    if(!CAS(false,main_arena.top_chunk,true))
+    {
+        goto try_main_arena;
+    }
     ((Chunk *)((void *)&(*main_arena.top_chunk) + size))->size = main_arena.top_chunk->size - size;
+
+    if(!ARENA_CAS(false,true))
+    {
+        RELEASE_CAS_FLAG(main_arena.top_chunk);
+        goto try_main_arena;
+    }
     main_arena.top_chunk = (Chunk *)((void *)&(*main_arena.top_chunk) + size);
+
+    ARENA_CAS(true,false);
+    RELEASE_CAS_FLAG(main_arena.top_chunk);
     SET_NEXT_CHUNK_PREUSE(res, 1);
     SET_CHUNK_INUSE(res, 1);
     RELEASE_CAS_FLAG(res);
@@ -460,6 +492,8 @@ void alloc_new_heap()
     printf("page : %d\n", ++page_count);
 
 #endif
+    while(!ARENA_CAS(false,true));
+    
     add_to_free_list(main_arena.top_chunk);
     HeapMem *first_heap = (HeapMem *)mmap(NULL, getpagesize(), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE,
                                           0, 0);
@@ -482,11 +516,11 @@ void alloc_new_heap()
     first_top_chunk->pre_size = 0;
     first_top_chunk->size = getpagesize() - sizeof(HeapMem);
     main_arena.top_chunk = first_top_chunk;
+    ARENA_CAS(true,false);
 }
 
 void *my_malloc(size_t size)
 {
-
     if (size >> 63)
     {
         return NULL;
@@ -519,6 +553,7 @@ void *my_malloc(size_t size)
         printf("malloc by mmap\n");
 
 #endif
+
         return GET_USER_CHUNK(mmaped_chunk);
     }
     Chunk *res = NULL;
@@ -528,6 +563,7 @@ void *my_malloc(size_t size)
         printf("malloc by free list\n");
 
 #endif
+
         return GET_USER_CHUNK(res);
     }
 
@@ -537,6 +573,7 @@ void *my_malloc(size_t size)
         printf("malloc by split chunk\n");
 
 #endif
+
         return GET_USER_CHUNK(res);
     }
 
@@ -547,6 +584,7 @@ void *my_malloc(size_t size)
         printf("malloc by alloc and slpit chunk\n");
 
 #endif
+
         return GET_USER_CHUNK(res);
     }
 
@@ -559,7 +597,13 @@ void my_free(void *ptr)
     {
         return;
     }
+    
     Chunk *p = GET_CHUNK(ptr);
+    if((unsigned long long)p&0x7)
+    {
+        printf("error : %p\n",ptr);
+        ERROR_MSG("");
+    }
     if (IS_CHUNK_MMAPED(p))
     {
         munmap(p, GET_CHUNK_SIZE(p));

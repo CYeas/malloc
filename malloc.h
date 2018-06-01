@@ -35,7 +35,7 @@ struct Arena
     Chunk* top_chunk;
     //Chunk* last_chunk_list;
     Chunk* free_chunk_list;
-
+    int cas_flag = 0;
 };
 
 #endif

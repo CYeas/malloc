@@ -11,7 +11,7 @@
 #include <err.h>
 #include <pthread.h>
 
-#define TEST_THREAD_NUM 128
+#define TEST_THREAD_NUM 64
 
 typedef void *(*my_malloc_ptr)(size_t);
 typedef void (*my_free_ptr)(void *);
