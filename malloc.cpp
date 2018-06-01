@@ -31,7 +31,7 @@ inline void ERROR_MSG(const char *msg)
 
 inline bool IS_CAS_FLAG(Chunk *p)
 {
-    return ((p->pre_size >> 1) & 1);
+    return ((p->pre_size >> 2) & 1);
 }
 inline void SET_CAS_FLAG(Chunk *p)
 {
@@ -106,11 +106,7 @@ inline void SET_PRE_INUSE(Chunk *p, int flag)
     }
     if (flag == 1)
     {
-        if (p->pre_size & 1)
-        {
-            return;
-        }
-        p->pre_size += 1;
+        p->pre_size |= 1;
     }
 }
 
@@ -122,11 +118,7 @@ inline void SET_CHUNK_INUSE(Chunk *p, int flag)
     }
     if (flag == 1)
     {
-        if (p->size & 1)
-        {
-            return;
-        }
-        p->size += 1;
+        p->size |= 1;
     }
 }
 
@@ -233,9 +225,13 @@ bool try_combine_chunk(Chunk *p)
 
 retry_combine_pre:
     p = save_p;
-    while (!IS_PRE_INUSE(p))
+    while (p->pre_size != 0)
     {
         if (p->pre_size == 0)
+        {
+            break;
+        }
+        if (IS_PRE_INUSE(p))
         {
             break;
         }
@@ -245,22 +241,34 @@ retry_combine_pre:
         {
             goto retry_combine_pre;
         }
+        //int tmp = last->pre_size & 3;
         last->size = GET_CHUNK_SIZE(last) + GET_CHUNK_SIZE(p);
         SET_CHUNK_INUSE(last, 0);
-        SET_NEXT_CHUNK_PREUSE(last, 0);
+        if ((size_t)GET_NEXT_CHUNK(last) % getpagesize() == 0)
+        {
+            SET_NEXT_CHUNK_PREUSE(last, 0);
+        }
+        //SET_PRE_INUSE(last,tmp);
+        //last->pre_size = last->pre_size +
         RELEASE_CAS_FLAG(last);
         p = last;
         flag = 1;
     }
 
 retry_combine_next:
-    while (!IS_NEXT_INUSE(p))
+    while (p->size != 0)
     {
 
         Chunk *next = GET_NEXT_CHUNK(p);
         if ((size_t)(next) % getpagesize() == 0)
         {
-            return false;
+            add_to_free_list(p);
+            return true;
+        }
+        if (IS_CHUNK_INUSE(p))
+        {
+            goto combine_end;
+            //   return false;
         }
         if (next == main_arena.top_chunk)
         {
@@ -271,7 +279,13 @@ retry_combine_next:
             p->size = GET_CHUNK_SIZE(next) + GET_CHUNK_SIZE(p);
             SET_CHUNK_INUSE(p, 0);
             RELEASE_CAS_FLAG(p);
+
+            while(!ARENA_CAS(false,true))
+            {
+
+            }
             main_arena.top_chunk = p;
+            ARENA_CAS(true,false);
             //add_to_free_list(p);
             return true;
         }
@@ -293,6 +307,8 @@ retry_combine_next:
         //return true;
         flag = 1;
     }
+
+combine_end:
     if (flag == 1)
     {
         add_to_free_list(p);
@@ -322,7 +338,7 @@ void add_to_free_list(Chunk *p)
     }
 
 search_restart:
-    if(main_arena.cas_flag)
+    if (main_arena.cas_flag)
     {
         goto search_restart;
     }
@@ -472,14 +488,15 @@ try_main_arena:
     {
         goto try_main_arena;
     }
-    ((Chunk *)((void *)&(*main_arena.top_chunk) + size))->size = main_arena.top_chunk->size - size;
 
     if (!ARENA_CAS(false, true))
     {
         RELEASE_CAS_FLAG(main_arena.top_chunk);
         goto try_main_arena;
     }
+
     main_arena.top_chunk = (Chunk *)((void *)&(*main_arena.top_chunk) + size);
+    main_arena.top_chunk->size = new_size;
 
     ARENA_CAS(true, false);
     RELEASE_CAS_FLAG(main_arena.top_chunk);
@@ -589,7 +606,6 @@ void *my_malloc(size_t size)
         printf("malloc by alloc and slpit chunk\n");
 
 #endif
-
         return GET_USER_CHUNK(res);
     }
 

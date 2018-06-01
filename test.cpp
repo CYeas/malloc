@@ -59,6 +59,7 @@ void test()
         if(rand()%3==0)
         {
             free_func(data);
+            printf("freed!\n");
             datas[i]=0;
         }
         
