@@ -11,7 +11,7 @@
 #include <err.h>
 #include <pthread.h>
 
-#define TEST_THREAD_NUM 64
+#define TEST_THREAD_NUM 8
 
 typedef void *(*my_malloc_ptr)(size_t);
 typedef void (*my_free_ptr)(void *);
@@ -29,6 +29,7 @@ void *thread_test(void *ptr)
     for (int i = 0; i < num; i++)
     {
         void *data = malloc_func(rand() % getpagesize());
+        printf("addr : %p \n", data);
         free_func(data);
     }
 }
