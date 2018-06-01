@@ -1,11 +1,11 @@
 cc = g++
 
 all:
-	cc malloc.cpp -shared -o mymalloc.so -O3 -fPIC -std=c++11
-	cc test.cpp -o test -O3 -ldl -fpermissive -std=c++11 -lpthread
+	cc malloc.cpp -shared -o mymalloc.so -O3 -fPIC -std=c++11 
+	cc test.cpp -o test -O3 -ldl -fpermissive -std=c++11 -lpthread 
 
 debug:
-	cc malloc.cpp -shared -o mymalloc.so -g -fPIC -std=c++11
+	cc malloc.cpp -shared -o mymalloc.so -g -fPIC -std=c++11 
 	cc test.cpp -o test -g -ldl -fpermissive -std=c++11 -lpthread
 
 clean:

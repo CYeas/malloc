@@ -13,7 +13,7 @@ extern "C" void my_free(void*);
 
 struct Chunk
 {
-    size_t pre_size;  // the last one bit : is_pre_inuse 
+    size_t pre_size;  // the last two bit : cas_flag is_pre_inuse 
     size_t size;      // the last two bit : is_mmaped is_inuse 
     // only use in free chunk
     Chunk* last;
