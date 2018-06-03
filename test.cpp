@@ -11,7 +11,7 @@
 #include <err.h>
 #include <pthread.h>
 
-#define TEST_THREAD_NUM 8
+#define TEST_THREAD_NUM 16
 
 typedef void *(*my_malloc_ptr)(size_t);
 typedef void (*my_free_ptr)(void *);
@@ -28,7 +28,7 @@ void *thread_test(void *ptr)
     int num = (int)ptr;
     for (int i = 0; i < num; i++)
     {
-        void *data = malloc_func(rand() % getpagesize());
+        void *data = malloc_func(rand() % 0x100);
         printf("addr : %p \n", data);
         free_func(data);
     }
@@ -44,10 +44,10 @@ void test()
     printf("seed : %d\n", seed);
 
     srand(seed);
-    int count = rand()%100;
-    int j=0;
-    char* datas[512]={0};
-    for (int i = 0; i < 512; i++)
+    int count = rand() % 100;
+    int j = 0;
+    char *datas[256] = {0};
+    for (int i = 0; i < 256; i++)
     {
 
         size_t size = rand() % getpagesize();
@@ -56,17 +56,16 @@ void test()
         printf("addr : %p \n", data);
         datas[i] = data;
         //memcpy(data, test_data, size > 2047 ? 2017 : size);
-        if(rand()%3==0)
+        if (rand() % 3 == 0)
         {
             free_func(data);
             printf("freed!\n");
-            datas[i]=0;
+            datas[i] = 0;
         }
-        
     }
-    for (int i = 0; i < 512; i++)
+    for (int i = 0; i < 256; i++)
     {
-        if(datas[i]!=NULL)
+        if (datas[i] != NULL)
         {
             free_func(datas[i]);
         }
@@ -75,6 +74,7 @@ void test()
     for (int i = 0; i < TEST_THREAD_NUM; i++)
     {
         pthread_create(&pids[i], NULL, thread_test, (void *)(rand() % 100));
+        //pthread_join(pids[i], NULL);
     }
     for (int i = 0; i < TEST_THREAD_NUM; i++)
     {
@@ -97,13 +97,12 @@ int main()
     malloc_func = (my_malloc_ptr)dlsym(handle, "my_malloc");
     free_func = (my_free_ptr)dlsym(handle, "my_free");
 
-    test();
-
     if ((error = dlerror()) != NULL)
     {
         fprintf(stderr, "%s\n", error);
         exit(1);
     }
+    test();
 
     dlclose(handle);
     return 0;

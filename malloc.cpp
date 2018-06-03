@@ -19,6 +19,9 @@ static Arena main_arena;
 
 static Chunk main_arena_fake_chunk;
 
+static int free_cas = 0;
+static int malloc_flag = 0;
+
 #ifdef IS_DEBUG
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
@@ -41,6 +44,16 @@ inline void RELEASE_CAS_FLAG(Chunk *p)
 {
     SET_CAS_FLAG(p);
     p->pre_size = p->pre_size ^ 2;
+}
+
+inline bool FLAG_CAS(int old, int *flag, int new_value)
+{
+
+    __asm__ __volatile__(
+        "lock cmpxchg %3,%1"
+        : "=a"(old), "=m"(*(volatile int *)(flag))
+        : "0"(flag), "r"(new_value));
+    return flag;
 }
 
 inline bool ARENA_CAS(bool old, bool new_value)
@@ -85,6 +98,8 @@ inline size_t GET_REAL_SIZE(size_t size)
 }
 inline void *GET_USER_CHUNK(Chunk *p)
 {
+    while (!CAS(false, p, true))
+        ;
     return (void *)((void *)&(*p) + 2 * sizeof(size_t));
 }
 
@@ -280,14 +295,17 @@ retry_combine_next:
             SET_CHUNK_INUSE(p, 0);
             RELEASE_CAS_FLAG(p);
 
-            while(!ARENA_CAS(false,true))
+            while (!ARENA_CAS(false, true))
             {
-
             }
             main_arena.top_chunk = p;
-            ARENA_CAS(true,false);
+            ARENA_CAS(true, false);
             //add_to_free_list(p);
             return true;
+        }
+        if (IS_CAS_FLAG(next))
+        {
+            goto retry_combine_next;
         }
         if (next->size == 0)
         {
@@ -478,7 +496,11 @@ top_restart:
     if (new_size < sizeof(Chunk))
     {
         //alloc_new_heap();
+        //res->size += new_size;
+        while (!ARENA_CAS(false, true))
+            ;
         main_arena.top_chunk = NULL;
+        ARENA_CAS(true, false);
         SET_CHUNK_INUSE(res, 1);
         return res;
     }
@@ -543,9 +565,14 @@ void alloc_new_heap()
 
 void *my_malloc(size_t size)
 {
+malloc_start:
     if (size >> 63)
     {
         return NULL;
+    }
+    if (!FLAG_CAS(0, &malloc_flag, 1))
+    {
+        goto malloc_start;
     }
     if (!is_my_mallloc_init)
     {
@@ -575,7 +602,7 @@ void *my_malloc(size_t size)
         printf("malloc by mmap\n");
 
 #endif
-
+        malloc_flag = 0;
         return GET_USER_CHUNK(mmaped_chunk);
     }
     Chunk *res = NULL;
@@ -585,7 +612,7 @@ void *my_malloc(size_t size)
         printf("malloc by free list\n");
 
 #endif
-
+        malloc_flag = 0;
         return GET_USER_CHUNK(res);
     }
 
@@ -595,7 +622,7 @@ void *my_malloc(size_t size)
         printf("malloc by split chunk\n");
 
 #endif
-
+        malloc_flag = 0;
         return GET_USER_CHUNK(res);
     }
 
@@ -606,17 +633,24 @@ void *my_malloc(size_t size)
         printf("malloc by alloc and slpit chunk\n");
 
 #endif
+        malloc_flag = 0;
         return GET_USER_CHUNK(res);
     }
-
+    malloc_flag = 0;
     return NULL;
 }
 
 void my_free(void *ptr)
 {
+free_start:
     if (ptr == NULL)
     {
         return;
+    }
+
+    if (!FLAG_CAS(0, &free_cas, 1))
+    {
+        goto free_start;
     }
 
     Chunk *p = GET_CHUNK(ptr);
@@ -631,18 +665,22 @@ void my_free(void *ptr)
     if (IS_CHUNK_MMAPED(p))
     {
         munmap(p, GET_CHUNK_SIZE(p));
+        free_cas = 0;
         return;
     }
     if (!IS_CHUNK_INUSE(p))
     {
         ERROR_MSG("double free\n");
     }
+    RELEASE_CAS_FLAG(p);
     if (try_combine_chunk(p))
     {
+        free_cas = 0;
         return;
     }
 
     add_to_free_list(p);
+    free_cas = 0;
 #ifdef IS_DEBUG
     //printf("free add 0x%x to free list\n",p);
     int i = 0;
