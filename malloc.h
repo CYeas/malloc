@@ -11,14 +11,18 @@ extern "C" void* my_malloc(size_t);
 
 extern "C" void my_free(void*);
 
+/**
+ * 一个内存块单元描述结构
+ */
 struct Chunk
 {
     size_t pre_size;  // the last two bit : cas_flag is_pre_inuse 
     size_t size;      // the last two bit : is_mmaped is_inuse 
     // only use in free chunk
-    Chunk* last;
-    Chunk* next;
+    Chunk* last;//上一个chunk
+    Chunk* next;//下一个chunk
 };
+
 
 
 struct HeapMem
@@ -28,6 +32,9 @@ struct HeapMem
     // data
 };
 
+/**
+ * 维护从系统中获得的内存空间的总量和拆分链表
+ */
 struct Arena
 {
     HeapMem* memory_arena_head;
